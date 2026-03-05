@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PDF Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.min.mjs" type="module"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { width: 100%; height: 100%; overflow: auto; background: #525659; }
@@ -55,75 +56,63 @@
     </style>
 </head>
 <body>
-    <script>
-        var params = new URLSearchParams(window.location.search);
-        var pdfUrl = params.get('url');
+    <script type="module">
+        const params = new URLSearchParams(window.location.search);
+        const pdfUrl = params.get('url');
 
         if (!pdfUrl) {
-            document.body.innerHTML =
-                '<div class="landing"><div>' +
-                '<h1>PDF Viewer</h1>' +
-                '<p style="margin-top:8px">Append <code>?url=https://example.com/file.pdf</code> to view a PDF.</p>' +
-                '</div></div>';
+            document.body.innerHTML = `
+                <div class="landing">
+                    <div>
+                        <h1>PDF Viewer</h1>
+                        <p style="margin-top:8px">Append <code>?url=https://example.com/file.pdf</code> to view a PDF.</p>
+                    </div>
+                </div>`;
         } else {
-            document.body.innerHTML =
-                '<div id="loading">Loading PDF...</div>' +
-                '<div id="viewer"></div>' +
-                '<div id="error-msg"></div>';
+            document.body.innerHTML = `
+                <div id="loading">Loading PDF...</div>
+                <div id="viewer"></div>
+                <div id="error-msg"></div>`;
 
-            // Load PDF.js legacy build (no ES modules needed)
-            var script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-            script.onload = function() {
-                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            const proxyUrl = '/api/proxy?url=' + encodeURIComponent(pdfUrl);
 
-                var proxyUrl = '/api/proxy?url=' + encodeURIComponent(pdfUrl);
+            const pdfjsLib = await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.min.mjs');
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.worker.min.mjs';
 
-                pdfjsLib.getDocument(proxyUrl).promise.then(function(pdf) {
-                    document.getElementById('loading').style.display = 'none';
-                    var viewer = document.getElementById('viewer');
-                    var devicePixelRatio = window.devicePixelRatio || 1;
-
-                    var renderPage = function(pageNum) {
-                        if (pageNum > pdf.numPages) return;
-
-                        pdf.getPage(pageNum).then(function(page) {
-                            var viewport = page.getViewport({ scale: 1 });
-                            var screenWidth = Math.min(window.innerWidth - 16, 960);
-                            var scale = (screenWidth / viewport.width) * devicePixelRatio;
-                            var scaledViewport = page.getViewport({ scale: scale });
-
-                            var canvas = document.createElement('canvas');
-                            canvas.width = scaledViewport.width;
-                            canvas.height = scaledViewport.height;
-                            canvas.style.width = (scaledViewport.width / devicePixelRatio) + 'px';
-                            viewer.appendChild(canvas);
-
-                            page.render({
-                                canvasContext: canvas.getContext('2d'),
-                                viewport: scaledViewport
-                            }).promise.then(function() {
-                                renderPage(pageNum + 1);
-                            });
-                        });
-                    };
-
-                    renderPage(1);
-                }).catch(function(err) {
-                    document.getElementById('loading').style.display = 'none';
-                    var errorEl = document.getElementById('error-msg');
-                    errorEl.style.display = 'block';
-                    errorEl.textContent = 'Failed to load PDF. The URL may be invalid or inaccessible.';
-                    console.error(err);
-                });
-            };
-            script.onerror = function() {
+            try {
+                const pdf = await pdfjsLib.getDocument(proxyUrl).promise;
                 document.getElementById('loading').style.display = 'none';
-                var errorEl = document.getElementById('error-msg');
+                const viewer = document.getElementById('viewer');
+
+                const devicePixelRatio = window.devicePixelRatio || 1;
+
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({ scale: 1 });
+
+                    // Scale to fit screen width, capped at 2x for sharpness
+                    const screenWidth = Math.min(window.innerWidth - 16, 960);
+                    const scale = (screenWidth / viewport.width) * devicePixelRatio;
+                    const scaledViewport = page.getViewport({ scale });
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = scaledViewport.width;
+                    canvas.height = scaledViewport.height;
+                    canvas.style.width = (scaledViewport.width / devicePixelRatio) + 'px';
+                    viewer.appendChild(canvas);
+
+                    await page.render({
+                        canvasContext: canvas.getContext('2d'),
+                        viewport: scaledViewport,
+                    }).promise;
+                }
+            } catch (err) {
+                document.getElementById('loading').style.display = 'none';
+                const errorEl = document.getElementById('error-msg');
                 errorEl.style.display = 'block';
-                errorEl.textContent = 'Failed to load PDF viewer.';
-            };
-            document.head.appendChild(script);
+                errorEl.textContent = 'Failed to load PDF. The URL may be invalid or inaccessible.';
+                console.error(err);
+            }
         }
     </script>
 </body>
